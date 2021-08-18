@@ -1,0 +1,82 @@
+SELECT 
+PV.search_date,
+PV.Airline,
+PV.emcid,
+SUM(PV.Pageviews_AMP) AS Pageviews_AMP,
+SUM(PV.Pageviews_VG) AS Pageviews_VG,
+SUM(FSI_AMP.fsi_AMP) AS FSI_AMP
+FROM
+(
+SELECT 
+AMP.__createdat::DATE as search_date,
+AMP.Airline,
+AMP.emcid,
+count(distinct __createdat) as Pageviews_AMP,
+count(distinct __createdat_vg) as Pageviews_VG
+FROM
+(select
+__createdat,
+upper(json_extract_path_text(context,'airline','code')) as Airline,
+event_action,
+json_extract_path_text(variables,'emcid') as emcid,
+replace(replace(replace(replace(replace(replace(replace(json_extract_path_text(variables,'url'),'\?',''),'\#',''),'\'',''),'\%3A',':'),'\%2F','/'),'\%3F',''),'\%23','') as url
+--replace(replace(replace(replace(replace(replace(replace(json_extract_path_text(variables,'url'),'\'',''),'\?',''),'\#',''),'\%3A',':'),'\%2F','/'),'\%3F',''),'\%23','') as url,
+from public.em_cmp_lib_tracking_001
+where
+__createdat >= '2021-01-01'::TIMESTAMP and __createdat < current_date::TIMESTAMP
+and event_action = 'pageview'
+and json_extract_path_text(variables,'emcid') <> '' and json_extract_path_text(variables,'emcid') <> 'n/a'
+AND json_extract_path_text(variables, 'url') ~ '\/amp'
+AND json_extract_path_text(variables, 'url') !~ '.everymundo.'
+AND json_extract_path_text(variables, 'url') !~ '\:\/\/[a-z]+-[a-z]+\.'
+AND json_extract_path_text(variables, 'url') !~ '\:\/\/[a-z]+_[a-z]+\.') AMP
+
+left join 
+
+(select
+__createdat as __createdat_VG,
+upper(airline_code) as Airline_VG,
+json_extract_path_text(variables,'emcid') as emcid_VG,
+replace(replace(replace(replace(replace(replace(replace(json_extract_path_text(variables,'url'),'\?',''),'\#',''),'\'',''),'\%3A',':'),'\%2F','/'),'\%3F',''),'\%23','') as url_VG
+from public.em_cmp_lib_tracking_001
+where
+__createdat >= '2021-01-01'::TIMESTAMP and __createdat < current_date::TIMESTAMP
+and event_action = 'pageview'
+and json_extract_path_text(variables, 'url') !~ '\/amp'
+AND json_extract_path_text(variables, 'url') !~ '\:\/\/[a-z]+-[a-z]+\.'
+AND json_extract_path_text(variables, 'url') !~ '\:\/\/[a-z]+_[a-z]+\.') VG
+
+ON emcid=emcid_VG
+AND Airline=Airline_VG
+AND __createdat::DATE = __createdat_VG::DATE
+AND __createdat <= __createdat_VG
+
+GROUP BY "search_date", AMP.Airline,AMP.emcid
+) PV
+
+left join
+
+(select
+__createdat::DATE as search_date_FSI,
+upper(airline_code) as Airline_FSI,
+json_extract_path_text(variables,'emcid') as emcid_FSI,
+count(*) as fsi_AMP
+from public.em_cmp_lib_tracking_001
+where
+__createdat >= '2021-01-01'::TIMESTAMP and __createdat < current_date::TIMESTAMP
+and event_action = 'fsi'
+and json_extract_path_text(variables,'emcid') <> '' and json_extract_path_text(variables,'emcid') <> 'n/a'
+AND json_extract_path_text(variables, 'url') ~ '\/amp'
+AND json_extract_path_text(variables, 'url') !~ '.everymundo.'
+AND json_extract_path_text(variables, 'url') !~ '\:\/\/[a-z]+-[a-z]+\.'
+AND json_extract_path_text(variables, 'url') !~ '\:\/\/[a-z]+_[a-z]+\.'
+GROUP BY "search_date_FSI","Airline_FSI","emcid_FSI"
+) FSI_AMP
+
+ON PV.search_date=FSI_AMP.search_date_FSI
+AND PV.Airline = FSI_AMP.Airline_FSI
+AND PV.emcid=FSI_AMP.emcid_FSI
+
+GROUP BY PV.search_date,PV.Airline,PV.emcid
+
+;
